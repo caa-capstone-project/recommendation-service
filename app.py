@@ -1,6 +1,53 @@
+import csv
+import torch
+import model
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+
+NO_OF_RECOMMENDATIONS = 10
+MODEL_STATUS = False
+recommender = None
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def load_model():
+    global recommender, MODEL_STATUS
+    try:
+        recommender = model.Recommender()
+        # recommender.to(device)
+        recommender.load_state_dict(torch.load("model.pth",  map_location=torch.device('cpu')))
+        recommender.eval()  # Set model to evaluation mode
+        MODEL_STATUS = True
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        MODEL_STATUS = False
+
+def load_movie_ids(file_path):
+    with open(file_path, 'r') as file:
+        reader = csv.reader(file)
+        movie_ids = next(reader)  # Read the first line
+    # Convert movie ids to integers
+    movie_ids = [int(movie_id) for movie_id in movie_ids]
+    return movie_ids
+
+def create_movie_id_to_index_map(movie_ids):
+    movie_id_to_index = {movie_id: idx for idx, movie_id in enumerate(movie_ids)}
+    return movie_id_to_index
+
+def create_ratings_list(movie_id_to_index, ratings):
+    ratings_list = [-1] * len(movie_id_to_index)  # Create a list with all elements set to -1
+    for movie_id, rating in ratings:
+        if movie_id in movie_id_to_index:
+            ratings_list[movie_id_to_index[movie_id]] = rating
+    ratings_tensor = torch.tensor(ratings_list, dtype=torch.float32)
+    # ratings_tensor = ratings_tensor.to(device)  # Move the tensor to the GPU
+    return ratings_tensor
+
+movie_ids_file_path = 'movie_ids.csv'
+movie_ids = load_movie_ids(movie_ids_file_path)
+movie_id_to_index = create_movie_id_to_index_map(movie_ids)
+load_model()
 
 # Test endpoint to check if the app is running
 @app.route('/test', methods=['GET'])
@@ -8,45 +55,29 @@ def test():
     return 'Flask app is running!'
 
 # Test endpoint to check if the model is up
-@app.route('/model_check', methods=['GET'])
-def model_check():
-    return jsonify({'status': 'Model is up and running'})
+@app.route('/health', methods=['GET'])
+def health_check():
+    if MODEL_STATUS:
+        return jsonify({"status": "healthy", "message": "Model is loaded and ready"}), 200
+    else:
+        return jsonify({"status": "unhealthy", "message": "Model is not loaded"}), 500
 
 # Endpoint to handle the recommendation
 @app.route('/recommend', methods=['POST'])
 def recommend():
+    global movie_id_to_index, NO_OF_RECOMMENDATIONS
     data = request.get_json()
-    user_id = data['userid']
     ratings = data['ratings']
 
-    recommendations = [
-    {
-        'movie_id': 12345,
-        'movie_name': 'The Godfather',
-        'imdb_id': 'tt0068646'
-    },
-    {
-        'movie_id': 67890,
-        'movie_name': 'The Shawshank Redemption',
-        'imdb_id': 'tt0111161'
-    },
-    {
-        'movie_id': 24680,
-        'movie_name': 'The Dark Knight',
-        'imdb_id': 'tt0468569'
-    },
-    {
-        'movie_id': 13579,
-        'movie_name': 'Schindler\'s List',
-        'imdb_id': 'tt0108052'
-    },
-    {
-        'movie_id': 98765,
-        'movie_name': 'Pulp Fiction',
-        'imdb_id': 'tt0110912'
-    }]
+    ratings = create_ratings_list(movie_id_to_index, ratings)
 
-    return jsonify(recommendations)
+    with torch.no_grad():  # Disable gradient computation for inference
+        predictions = recommender(ratings)
+
+    _, top_indices = torch.topk(predictions, NO_OF_RECOMMENDATIONS, largest=True, sorted=True)
+
+    movie_ids_list = top_indices.tolist()
+    return jsonify({"recommendations": movie_ids_list})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=4201, debug=True)
