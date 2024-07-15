@@ -8,11 +8,13 @@ def masked_mse_loss(output, target, mask):
     loss = loss * mask
     return loss.sum() / mask.sum()
 
-def train_model(model, data_loader, num_epochs=20, learning_rate=0.003):
+def train_model(model, data_loader, num_epochs=20, learning_rate=0.003, save_path='model'):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     model.train()
+
+    best_loss = float('inf')  # Initialize best_loss to infinity
 
     for epoch in range(num_epochs):
         total_loss = 0
@@ -36,11 +38,14 @@ def train_model(model, data_loader, num_epochs=20, learning_rate=0.003):
             total_loss += loss.item()
         
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {total_loss}')
-        return
 
-def save_model(model):
-    model_folder = "model"
-    if not os.path.exists(model_folder):
-        os.makedirs(model_folder)
+        # Save the model if the current total_loss is lower than the best_loss
+        if total_loss < best_loss:
+            best_loss = total_loss
+            save_model(model, save_path)
+
+def save_model(model, save_path):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
     # Save the model
-    torch.save(model.state_dict(), f"{model_folder}/model.pth")
+    torch.save(model.state_dict(), f"{save_path}/model.pth")
