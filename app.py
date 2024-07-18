@@ -37,7 +37,9 @@ def create_movie_id_to_index_map(movie_ids):
 
 def create_ratings_list(movie_id_to_index, ratings):
     ratings_list = [-1] * len(movie_id_to_index)  # Create a list with all elements set to -1
-    for movie_id, rating in ratings:
+    for rating_entry in ratings:
+        movie_id = rating_entry["movieId"]
+        rating = rating_entry["rating"]
         if movie_id in movie_id_to_index:
             ratings_list[movie_id_to_index[movie_id]] = rating
     ratings_tensor = torch.tensor(ratings_list, dtype=torch.float32)
